@@ -1,0 +1,337 @@
+-- [[ Byweea cute💗 | Server Gravity Coil + Large Blue Trail ]] --
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+-- Configuration
+local TOOL_NAME = "Byweea cute💗"
+local BOING_SOUND_ID = "rbxassetid://16619553"
+
+local JUMP_POWER = 103
+local DEFAULT_JUMP_POWER = 50
+local FALL_FORCE = 0.5
+
+-- Coil appearance
+local COIL_COLOR = BrickColor.new("Bright blue").Color
+local COIL_RADIUS = 0.65
+local COIL_TURNS = 5
+local COIL_SEGMENTS_PER_TURN = 40
+local COIL_THICKNESS = 0.14
+local COIL_HEIGHT = 2.5
+
+-- Large Blue Trail
+local TRAIL_COLOR = Color3.fromRGB(0, 170, 255)
+local TRAIL_LIFETIME = 0.6
+local TRAIL_WIDTH = 0.8
+
+local playerStates = {}
+
+local function cleanupEffects(state)
+    if state.jumpConnection then
+        state.jumpConnection:Disconnect()
+        state.jumpConnection = nil
+    end
+
+    if state.fallConnection then
+        state.fallConnection:Disconnect()
+        state.fallConnection = nil
+    end
+
+    if state.force then
+        state.force:Destroy()
+        state.force = nil
+    end
+
+    if state.attachment then
+        state.attachment:Destroy()
+        state.attachment = nil
+    end
+end
+
+local function createCoilModel(tool)
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Shape = Enum.PartType.Ball
+    handle.Size = Vector3.new(0.25, 0.25, 0.25)
+    handle.Transparency = 1
+    handle.CanCollide = false
+    handle.CanTouch = false
+    handle.CanQuery = false
+    handle.Massless = true
+    handle.Parent = tool
+
+    local totalSegments = COIL_TURNS * COIL_SEGMENTS_PER_TURN
+    local totalAngle = COIL_TURNS * math.pi * 2
+    local tailPosition
+
+    for i = 0, totalSegments - 1 do
+        local t1 = i / totalSegments
+        local t2 = (i + 1) / totalSegments
+
+        local angle1 = t1 * totalAngle
+        local angle2 = t2 * totalAngle
+
+        local p1 = Vector3.new(
+            math.cos(angle1) * COIL_RADIUS,
+            math.sin(angle1) * COIL_RADIUS,
+            (t1 - 0.5) * COIL_HEIGHT
+        )
+
+        local p2 = Vector3.new(
+            math.cos(angle2) * COIL_RADIUS,
+            math.sin(angle2) * COIL_RADIUS,
+            (t2 - 0.5) * COIL_HEIGHT
+        )
+
+        local direction = p2 - p1
+        local midpoint = (p1 + p2) / 2
+
+        local segment = Instance.new("Part")
+        segment.Name = "CoilSegment"
+        segment.Shape = Enum.PartType.Cylinder
+        segment.Size = Vector3.new(
+            direction.Magnitude + 0.015,
+            COIL_THICKNESS,
+            COIL_THICKNESS
+        )
+        segment.Color = COIL_COLOR
+        segment.Material = Enum.Material.Neon
+        segment.CanCollide = false
+        segment.CanTouch = false
+        segment.CanQuery = false
+        segment.Massless = true
+
+        segment.CFrame = CFrame.new(midpoint)
+            * CFrame.fromRotationBetweenVectors(
+                Vector3.new(1, 0, 0),
+                direction.Unit
+            )
+
+        segment.Parent = tool
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = handle
+        weld.Part1 = segment
+        weld.Parent = segment
+
+        tailPosition = p2
+    end
+
+    return handle, tailPosition
+end
+
+-- Large Blue Trail attached to the coil tail
+local function createBlueTrail(handle, tailPosition)
+    local a0 = Instance.new("Attachment")
+    a0.Name = "BlueTrailStart"
+    a0.Position = tailPosition
+    a0.Parent = handle
+
+    local a1 = Instance.new("Attachment")
+    a1.Name = "BlueTrailEnd"
+    a1.Position = tailPosition + Vector3.new(0, 0, -0.8)
+    a1.Parent = handle
+
+    local trail = Instance.new("Trail")
+    trail.Name = "ByweeaBlueTrail"
+    trail.Attachment0 = a0
+    trail.Attachment1 = a1
+    trail.Color = ColorSequence.new(TRAIL_COLOR)
+    trail.Lifetime = TRAIL_LIFETIME
+    trail.MinLength = 0.03
+
+    trail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, TRAIL_WIDTH),
+        NumberSequenceKeypoint.new(1, 0)
+    })
+
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.05),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+
+    trail.FaceCamera = true
+    trail.LightEmission = 1
+    trail.Enabled = false
+    trail.Parent = handle
+
+    return trail
+end
+
+local function enableLightFall(player, state)
+    cleanupEffects(state)
+
+    local character = player.Character
+    local root = character
+        and character:FindFirstChild("HumanoidRootPart")
+
+    if not root then
+        return
+    end
+
+    local attachment = Instance.new("Attachment")
+    attachment.Name = "ByweeaFallAttachment"
+    attachment.Parent = root
+    state.attachment = attachment
+
+    local force = Instance.new("VectorForce")
+    force.Name = "ByweeaFallForce"
+    force.Attachment0 = attachment
+    force.RelativeTo = Enum.ActuatorRelativeTo.World
+    force.ApplyAtCenterOfMass = true
+    force.Parent = root
+    state.force = force
+
+    state.fallConnection = RunService.Heartbeat:Connect(function()
+        if not root.Parent or not force.Parent then
+            if state.fallConnection then
+                state.fallConnection:Disconnect()
+                state.fallConnection = nil
+            end
+            return
+        end
+
+        if root.AssemblyLinearVelocity.Y < 0 then
+            force.Force = Vector3.new(
+                0,
+                root.AssemblyMass * workspace.Gravity * FALL_FORCE,
+                0
+            )
+        else
+            force.Force = Vector3.zero
+        end
+    end)
+end
+
+local function createGravityCoil(player)
+    local backpack = player:WaitForChild("Backpack")
+
+    if backpack:FindFirstChild(TOOL_NAME) then
+        backpack[TOOL_NAME]:Destroy()
+    end
+
+    if player.Character then
+        local oldEquipped = player.Character:FindFirstChild(TOOL_NAME)
+        if oldEquipped then
+            oldEquipped:Destroy()
+        end
+    end
+
+    local tool = Instance.new("Tool")
+    tool.Name = TOOL_NAME
+    tool.ToolTip = "Byweea cute"
+    tool.RequiresHandle = true
+    tool.CanBeDropped = false
+    tool.Grip = CFrame.new(0, 0, -0.25)
+        * CFrame.Angles(0, 0, math.rad(90))
+
+    local handle, tailPosition = createCoilModel(tool)
+    local blueTrail = createBlueTrail(handle, tailPosition)
+
+    local sound = Instance.new("Sound")
+    sound.Name = "BoingSound"
+    sound.SoundId = BOING_SOUND_ID
+    sound.Volume = 0.6
+    sound.Looped = false
+    sound.Parent = handle
+
+    local state = {
+        tool = tool,
+        trail = blueTrail,
+    }
+
+    playerStates[player] = state
+
+    tool.Equipped:Connect(function()
+        local character = player.Character
+        local humanoid = character
+            and character:FindFirstChildOfClass("Humanoid")
+
+        if not humanoid then
+            return
+        end
+
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = JUMP_POWER
+
+        blueTrail.Enabled = true
+        enableLightFall(player, state)
+
+        if state.jumpConnection then
+            state.jumpConnection:Disconnect()
+        end
+
+        state.jumpConnection = humanoid.Jumping:Connect(
+            function(isJumping)
+                if isJumping and sound.Parent then
+                    sound:Stop()
+                    sound.TimePosition = 0
+                    sound:Play()
+                end
+            end
+        )
+    end)
+
+    tool.Unequipped:Connect(function()
+        local character = player.Character
+        local humanoid = character
+            and character:FindFirstChildOfClass("Humanoid")
+
+        if humanoid then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = DEFAULT_JUMP_POWER
+        end
+
+        blueTrail.Enabled = false
+        cleanupEffects(state)
+    end)
+
+    tool.Destroying:Connect(function()
+        blueTrail.Enabled = false
+        cleanupEffects(state)
+    end)
+
+    tool.Parent = backpack
+end
+
+local function setupPlayer(player)
+    player.CharacterAdded:Connect(function()
+        local oldState = playerStates[player]
+
+        if oldState then
+            cleanupEffects(oldState)
+            playerStates[player] = nil
+        end
+
+        task.wait(1)
+
+        if player.Parent then
+            createGravityCoil(player)
+        end
+    end)
+
+    if player.Character then
+        task.spawn(function()
+            task.wait(1)
+
+            if player.Parent then
+                createGravityCoil(player)
+            end
+        end)
+    end
+end
+
+Players.PlayerAdded:Connect(setupPlayer)
+
+Players.PlayerRemoving:Connect(function(player)
+    local state = playerStates[player]
+
+    if state then
+        cleanupEffects(state)
+        playerStates[player] = nil
+    end
+end)
+
+for _, player in ipairs(Players:GetPlayers()) do
+    setupPlayer(player)
+end
