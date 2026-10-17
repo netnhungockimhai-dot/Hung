@@ -1,0 +1,288 @@
+
+-- [[ Byweea cute | Extra Large Bright Blue Horizontal 3D Gravity Coil ]] --
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Configuration
+local TOOL_NAME = "Byweea cute"
+local BOING_SOUND_ID = "rbxassetid://16619553"
+
+local JUMP_POWER = 103
+local DEFAULT_JUMP_POWER = 50
+local FALL_FORCE = 0.5
+
+-- Extra Large Coil Appearance
+local COIL_COLOR = BrickColor.new("Bright blue").Color
+local COIL_RADIUS = 0.65
+local COIL_TURNS = 5
+local COIL_SEGMENTS_PER_TURN = 40
+local COIL_THICKNESS = 0.14
+local COIL_HEIGHT = 2.5
+
+local fallConnection
+local fallForce
+local fallAttachment
+local jumpConnection
+local currentTool
+
+local function getCharacter()
+    return LocalPlayer.Character
+end
+
+local function getHumanoid()
+    local character = getCharacter()
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function setJumpPower(value)
+    local humanoid = getHumanoid()
+
+    if humanoid then
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = value
+    end
+end
+
+local function disconnectJump()
+    if jumpConnection then
+        jumpConnection:Disconnect()
+        jumpConnection = nil
+    end
+end
+
+local function disableLightFall()
+    if fallConnection then
+        fallConnection:Disconnect()
+        fallConnection = nil
+    end
+
+    if fallForce then
+        fallForce:Destroy()
+        fallForce = nil
+    end
+
+    if fallAttachment then
+        fallAttachment:Destroy()
+        fallAttachment = nil
+    end
+end
+
+local function enableLightFall()
+    disableLightFall()
+
+    local character = getCharacter()
+    local rootPart = character
+        and character:FindFirstChild("HumanoidRootPart")
+
+    if not rootPart then
+        return
+    end
+
+    local attachment = Instance.new("Attachment")
+    attachment.Name = "ByweeaFallAttachment"
+    attachment.Parent = rootPart
+    fallAttachment = attachment
+
+    local force = Instance.new("VectorForce")
+    force.Name = "ByweeaFallForce"
+    force.Attachment0 = attachment
+    force.RelativeTo = Enum.ActuatorRelativeTo.World
+    force.ApplyAtCenterOfMass = true
+    force.Parent = rootPart
+    fallForce = force
+
+    fallConnection = RunService.Heartbeat:Connect(function()
+        if not rootPart.Parent or not force.Parent then
+            disableLightFall()
+            return
+        end
+
+        if rootPart.AssemblyLinearVelocity.Y < 0 then
+            force.Force = Vector3.new(
+                0,
+                rootPart.AssemblyMass
+                    * workspace.Gravity
+                    * FALL_FORCE,
+                0
+            )
+        else
+            force.Force = Vector3.zero
+        end
+    end)
+end
+
+-- Create extra large horizontal 3D spiral coil
+local function createCoilModel(tool)
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Shape = Enum.PartType.Ball
+    handle.Size = Vector3.new(0.25, 0.25, 0.25)
+    handle.Transparency = 1
+    handle.CanCollide = false
+    handle.Anchored = false
+    handle.Massless = true
+    handle.Parent = tool
+
+    local totalSegments = COIL_TURNS * COIL_SEGMENTS_PER_TURN
+    local totalAngle = COIL_TURNS * math.pi * 2
+
+    for i = 0, totalSegments - 1 do
+        local t1 = i / totalSegments
+        local t2 = (i + 1) / totalSegments
+
+        local angle1 = t1 * totalAngle
+        local angle2 = t2 * totalAngle
+
+        local p1 = Vector3.new(
+            math.cos(angle1) * COIL_RADIUS,
+            math.sin(angle1) * COIL_RADIUS,
+            (t1 - 0.5) * COIL_HEIGHT
+        )
+
+        local p2 = Vector3.new(
+            math.cos(angle2) * COIL_RADIUS,
+            math.sin(angle2) * COIL_RADIUS,
+            (t2 - 0.5) * COIL_HEIGHT
+        )
+
+        local direction = p2 - p1
+        local midpoint = (p1 + p2) / 2
+
+        local segment = Instance.new("Part")
+        segment.Name = "CoilSegment"
+        segment.Shape = Enum.PartType.Cylinder
+        segment.Size = Vector3.new(
+            direction.Magnitude + 0.015,
+            COIL_THICKNESS,
+            COIL_THICKNESS
+        )
+        segment.Color = COIL_COLOR
+        segment.Material = Enum.Material.Neon
+        segment.CanCollide = false
+        segment.Anchored = false
+        segment.Massless = true
+
+        segment.CFrame = CFrame.new(midpoint)
+            * CFrame.fromRotationBetweenVectors(
+                Vector3.new(1, 0, 0),
+                direction.Unit
+            )
+
+        segment.Parent = tool
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = handle
+        weld.Part1 = segment
+        weld.Parent = segment
+    end
+
+    return handle
+end
+
+local function createGravityCoil()
+    local backpack = LocalPlayer:WaitForChild("Backpack", 5)
+
+    if not backpack then
+        return
+    end
+
+    -- Remove previous copies
+    local oldTool = backpack:FindFirstChild(TOOL_NAME)
+
+    if oldTool then
+        oldTool:Destroy()
+    end
+
+    local character = getCharacter()
+
+    if character then
+        local equippedTool = character:FindFirstChild(TOOL_NAME)
+
+        if equippedTool then
+            equippedTool:Destroy()
+        end
+    end
+
+    disableLightFall()
+    disconnectJump()
+
+    local tool = Instance.new("Tool")
+    tool.Name = TOOL_NAME
+    tool.RequiresHandle = true
+    tool.CanBeDropped = false
+    tool.ToolTip = "Byweea cute"
+
+    -- Horizontal holding angle and offset
+    tool.Grip = CFrame.new(0, 0, -0.25)
+        * CFrame.Angles(0, 0, math.rad(90))
+
+    local handle = createCoilModel(tool)
+
+    -- Jump sound
+    local sound = Instance.new("Sound")
+    sound.Name = "BoingSound"
+    sound.SoundId = BOING_SOUND_ID
+    sound.Volume = 0.6
+    sound.Looped = false
+    sound.Parent = handle
+
+    tool.Equipped:Connect(function()
+        currentTool = tool
+        setJumpPower(JUMP_POWER)
+        enableLightFall()
+        disconnectJump()
+
+        local humanoid = getHumanoid()
+
+        if humanoid then
+            jumpConnection = humanoid.Jumping:Connect(
+                function(isJumping)
+                    if isJumping and sound.Parent then
+                        sound:Stop()
+                        sound.TimePosition = 0
+                        sound:Play()
+                    end
+                end
+            )
+        end
+    end)
+
+    tool.Unequipped:Connect(function()
+        if currentTool == tool then
+            currentTool = nil
+            setJumpPower(DEFAULT_JUMP_POWER)
+        end
+
+        disableLightFall()
+        disconnectJump()
+    end)
+
+    tool.Destroying:Connect(function()
+        if currentTool == tool then
+            currentTool = nil
+        end
+
+        disableLightFall()
+        disconnectJump()
+    end)
+
+    tool.Parent = backpack
+end
+
+-- Respawn support
+LocalPlayer.CharacterAdded:Connect(function()
+    disableLightFall()
+    disconnectJump()
+    currentTool = nil
+
+    task.wait(0.7)
+    createGravityCoil()
+end)
+
+-- Initial setup
+if getCharacter() then
+    createGravityCoil()
+end
