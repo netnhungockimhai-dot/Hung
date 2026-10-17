@@ -1,0 +1,251 @@
+
+-- [[ Wed cute💗 | Extra Large Red Speed Coil + Red Trail ]] --
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Configuration
+local TOOL_NAME = "Wed cute💗"
+local TARGET_SPEED = 32
+local DEFAULT_SPEED = 16
+local EQUIP_SOUND_ID = "rbxassetid://92235360782852"
+
+-- Extra Large Coil Appearance
+local COIL_COLOR = BrickColor.new("Bright red").Color
+local COIL_RADIUS = 0.65
+local COIL_TURNS = 5
+local COIL_SEGMENTS_PER_TURN = 40
+local COIL_THICKNESS = 0.14
+local COIL_HEIGHT = 2.5
+
+-- Large Red Trail
+local TRAIL_COLOR = Color3.fromRGB(255, 25, 55)
+local TRAIL_LIFETIME = 0.6
+local TRAIL_WIDTH = 0.8
+
+local currentTool
+local givenOnce = false
+
+local function getHumanoid()
+    local character = LocalPlayer.Character
+    if not character then
+        return nil
+    end
+
+    return character:FindFirstChildOfClass("Humanoid")
+end
+
+local function setWalkSpeed(speed)
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = speed
+    end
+end
+
+-- Create extra large horizontal 3D spiral coil
+local function createCoilModel(tool)
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Shape = Enum.PartType.Ball
+    handle.Size = Vector3.new(0.25, 0.25, 0.25)
+    handle.Transparency = 1
+    handle.CanCollide = false
+    handle.CanTouch = false
+    handle.CanQuery = false
+    handle.Anchored = false
+    handle.Massless = true
+    handle.Parent = tool
+
+    local totalSegments = COIL_TURNS * COIL_SEGMENTS_PER_TURN
+    local totalAngle = COIL_TURNS * math.pi * 2
+    local tailPosition
+
+    for i = 0, totalSegments - 1 do
+        local t1 = i / totalSegments
+        local t2 = (i + 1) / totalSegments
+
+        local angle1 = t1 * totalAngle
+        local angle2 = t2 * totalAngle
+
+        local p1 = Vector3.new(
+            math.cos(angle1) * COIL_RADIUS,
+            math.sin(angle1) * COIL_RADIUS,
+            (t1 - 0.5) * COIL_HEIGHT
+        )
+
+        local p2 = Vector3.new(
+            math.cos(angle2) * COIL_RADIUS,
+            math.sin(angle2) * COIL_RADIUS,
+            (t2 - 0.5) * COIL_HEIGHT
+        )
+
+        local direction = p2 - p1
+        local midpoint = (p1 + p2) / 2
+
+        local segment = Instance.new("Part")
+        segment.Name = "CoilSegment"
+        segment.Shape = Enum.PartType.Cylinder
+        segment.Size = Vector3.new(
+            direction.Magnitude + 0.015,
+            COIL_THICKNESS,
+            COIL_THICKNESS
+        )
+        segment.Color = COIL_COLOR
+        segment.Material = Enum.Material.Neon
+        segment.CanCollide = false
+        segment.CanTouch = false
+        segment.CanQuery = false
+        segment.Anchored = false
+        segment.Massless = true
+
+        segment.CFrame = CFrame.new(midpoint)
+            * CFrame.fromRotationBetweenVectors(
+                Vector3.new(1, 0, 0),
+                direction.Unit
+            )
+
+        segment.Parent = tool
+
+        local weld = Instance.new("WeldConstraint")
+        weld.Part0 = handle
+        weld.Part1 = segment
+        weld.Parent = segment
+
+        tailPosition = p2
+    end
+
+    return handle, tailPosition
+end
+
+-- Large Red Trail attached to the coil tail
+local function createRedTrail(handle, tailPosition)
+    local a0 = Instance.new("Attachment")
+    a0.Name = "RedTrailStart"
+    a0.Position = tailPosition
+    a0.Parent = handle
+
+    local a1 = Instance.new("Attachment")
+    a1.Name = "RedTrailEnd"
+    a1.Position = tailPosition + Vector3.new(0, 0, -0.8)
+    a1.Parent = handle
+
+    local trail = Instance.new("Trail")
+    trail.Name = "WedCuteRedTrail"
+    trail.Attachment0 = a0
+    trail.Attachment1 = a1
+    trail.Color = ColorSequence.new(TRAIL_COLOR)
+    trail.Lifetime = TRAIL_LIFETIME
+    trail.MinLength = 0.03
+
+    trail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, TRAIL_WIDTH),
+        NumberSequenceKeypoint.new(1, 0)
+    })
+
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.05),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+
+    trail.FaceCamera = true
+    trail.LightEmission = 1
+    trail.Enabled = false
+    trail.Parent = handle
+
+    return trail
+end
+
+local function createSpeedCoil()
+    local backpack = LocalPlayer:WaitForChild("Backpack", 10)
+
+    if not backpack then
+        return false
+    end
+
+    -- Prevent duplicate copies
+    if backpack:FindFirstChild(TOOL_NAME) then
+        return true
+    end
+
+    local character = LocalPlayer.Character
+
+    if character and character:FindFirstChild(TOOL_NAME) then
+        return true
+    end
+
+    local tool = Instance.new("Tool")
+    tool.Name = TOOL_NAME
+    tool.RequiresHandle = true
+    tool.CanBeDropped = false
+    tool.ToolTip = "Wed cute💗"
+
+    -- Horizontal holding angle and offset
+    tool.Grip = CFrame.new(0, 0, -0.25)
+        * CFrame.Angles(0, 0, math.rad(90))
+
+    local handle, tailPosition = createCoilModel(tool)
+    local redTrail = createRedTrail(handle, tailPosition)
+
+    -- Single equip sound
+    local equipSound = Instance.new("Sound")
+    equipSound.Name = "EquipSound"
+    equipSound.SoundId = EQUIP_SOUND_ID
+    equipSound.Volume = 0.7
+    equipSound.Looped = false
+    equipSound.Parent = handle
+
+    tool.Equipped:Connect(function()
+        currentTool = tool
+        setWalkSpeed(TARGET_SPEED)
+
+        redTrail.Enabled = true
+
+        equipSound:Stop()
+        equipSound.TimePosition = 0
+        equipSound:Play()
+    end)
+
+    tool.Unequipped:Connect(function()
+        if currentTool == tool then
+            currentTool = nil
+            setWalkSpeed(DEFAULT_SPEED)
+        end
+
+        redTrail.Enabled = false
+        equipSound:Stop()
+    end)
+
+    tool.Destroying:Connect(function()
+        redTrail.Enabled = false
+
+        if currentTool == tool then
+            currentTool = nil
+            setWalkSpeed(DEFAULT_SPEED)
+        end
+    end)
+
+    tool.Parent = backpack
+    return true
+end
+
+-- Give only once; never recreate on respawn
+local function setupSpeedCoil()
+    if givenOnce then
+        return
+    end
+
+    givenOnce = true
+
+    task.spawn(function()
+        local success = createSpeedCoil()
+
+        if not success then
+            givenOnce = false
+        end
+    end)
+end
+
+-- Initial setup only
+setupSpeedCoil()
+
+-- Intentionally no CharacterAdded connection
