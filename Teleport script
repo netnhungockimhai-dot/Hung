@@ -1,0 +1,285 @@
+
+-- [[ Ultimate Teleport Menu | 50% Transparent + Draggable ]] --
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+local ParentGui = (gethui and gethui())
+    or LocalPlayer:WaitForChild("PlayerGui")
+
+if ParentGui:FindFirstChild("TeleportMenuGui") then
+    ParentGui.TeleportMenuGui:Destroy()
+end
+
+-- ==================== SCREEN GUI ====================
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "TeleportMenuGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = ParentGui
+
+-- ==================== MAIN FRAME ====================
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 280, 0, 360)
+MainFrame.Position = UDim2.new(0.5, -140, 0.5, -180)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+MainFrame.BackgroundTransparency = 0.5
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+local MainCorner = Instance.new("UICorner")
+MainCorner.CornerRadius = UDim.new(0, 10)
+MainCorner.Parent = MainFrame
+
+-- ==================== TOP BAR ====================
+
+local TopBar = Instance.new("Frame")
+TopBar.Name = "TopBar"
+TopBar.Size = UDim2.new(1, 0, 0, 40)
+TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 26)
+TopBar.BackgroundTransparency = 0.5
+TopBar.BorderSizePixel = 0
+TopBar.Parent = MainFrame
+
+local TopCorner = Instance.new("UICorner")
+TopCorner.CornerRadius = UDim.new(0, 10)
+TopCorner.Parent = TopBar
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -45, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "TELEPORT MENU"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 13
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = TopBar
+
+-- ==================== MINIMIZE BUTTON ====================
+
+local MinimizeBtn = Instance.new("TextButton")
+MinimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+MinimizeBtn.Position = UDim2.new(1, -35, 0, 5)
+MinimizeBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+MinimizeBtn.BackgroundTransparency = 0.5
+MinimizeBtn.Font = Enum.Font.GothamBold
+MinimizeBtn.Text = "-"
+MinimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+MinimizeBtn.TextSize = 16
+MinimizeBtn.Parent = TopBar
+
+local MinCorner = Instance.new("UICorner")
+MinCorner.CornerRadius = UDim.new(0, 6)
+MinCorner.Parent = MinimizeBtn
+
+-- ==================== PLAYER LIST ====================
+
+local ScrollingFrame = Instance.new("ScrollingFrame")
+ScrollingFrame.Name = "PlayerList"
+ScrollingFrame.Size = UDim2.new(1, -20, 1, -60)
+ScrollingFrame.Position = UDim2.new(0, 10, 0, 50)
+ScrollingFrame.BackgroundTransparency = 1
+ScrollingFrame.BorderSizePixel = 0
+ScrollingFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollingFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+ScrollingFrame.ScrollingEnabled = true
+ScrollingFrame.Active = true
+ScrollingFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+ScrollingFrame.ElasticBehavior =
+    Enum.ElasticBehavior.WhenScrollable
+ScrollingFrame.ScrollBarThickness = 5
+ScrollingFrame.ScrollBarImageColor3 =
+    Color3.fromRGB(120, 160, 255)
+ScrollingFrame.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 6)
+UIListLayout.Parent = ScrollingFrame
+
+-- ==================== FLOATING TP BUTTON ====================
+
+local ToggleCircle = Instance.new("TextButton")
+ToggleCircle.Name = "ToggleCircle"
+ToggleCircle.Size = UDim2.new(0, 50, 0, 50)
+ToggleCircle.Position = UDim2.new(0, 30, 0, 150)
+ToggleCircle.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+ToggleCircle.BackgroundTransparency = 0.5
+ToggleCircle.Font = Enum.Font.GothamBold
+ToggleCircle.Text = "TP"
+ToggleCircle.TextColor3 = Color3.new(1, 1, 1)
+ToggleCircle.TextSize = 14
+ToggleCircle.Visible = false
+ToggleCircle.Parent = ScreenGui
+
+local CircleCorner = Instance.new("UICorner")
+CircleCorner.CornerRadius = UDim.new(1, 0)
+CircleCorner.Parent = ToggleCircle
+
+local CircleStroke = Instance.new("UIStroke")
+CircleStroke.Color = Color3.fromRGB(50, 50, 70)
+CircleStroke.Thickness = 2
+CircleStroke.Parent = ToggleCircle
+
+-- ==================== DRAG SYSTEM ====================
+
+local function makeDraggable(guiObject, handle)
+    handle = handle or guiObject
+
+    local dragging = false
+    local dragStart
+    local startPos
+    local activeInput
+    local dragConnection
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+            dragging = true
+            dragStart = input.Position
+            startPos = guiObject.Position
+
+            if dragConnection then
+                dragConnection:Disconnect()
+            end
+
+            dragConnection = input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                    activeInput = nil
+
+                    if dragConnection then
+                        dragConnection:Disconnect()
+                        dragConnection = nil
+                    end
+                end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            activeInput = input
+        end
+    end)
+
+    local renderConnection
+    renderConnection = RunService.RenderStepped:Connect(function()
+        if not guiObject.Parent then
+            renderConnection:Disconnect()
+            return
+        end
+
+        if dragging and activeInput then
+            local delta = activeInput.Position - dragStart
+
+            guiObject.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+makeDraggable(MainFrame, TopBar)
+makeDraggable(ToggleCircle)
+
+-- ==================== MINIMIZE / RESTORE ====================
+
+MinimizeBtn.Activated:Connect(function()
+    MainFrame.Visible = false
+    ToggleCircle.Visible = true
+end)
+
+ToggleCircle.Activated:Connect(function()
+    MainFrame.Visible = true
+    ToggleCircle.Visible = false
+end)
+
+-- ==================== UPDATE PLAYER LIST ====================
+
+local function updatePlayerList()
+    for _, child in ipairs(ScrollingFrame:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+
+    local count = 0
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            count += 1
+
+            local playerBtn = Instance.new("TextButton")
+            playerBtn.Name = "Player_" .. player.Name
+            playerBtn.Size = UDim2.new(1, 0, 0, 38)
+            playerBtn.BackgroundColor3 =
+                Color3.fromRGB(22, 22, 30)
+            playerBtn.BackgroundTransparency = 0.5
+            playerBtn.BorderSizePixel = 0
+            playerBtn.Font = Enum.Font.GothamMedium
+            playerBtn.Text = "  " .. player.DisplayName
+                .. " (@" .. player.Name .. ")"
+            playerBtn.TextColor3 =
+                Color3.fromRGB(230, 230, 230)
+            playerBtn.TextSize = 12
+            playerBtn.TextXAlignment =
+                Enum.TextXAlignment.Left
+            playerBtn.TextTruncate = Enum.TextTruncate.AtEnd
+            playerBtn.AutoButtonColor = true
+            playerBtn.LayoutOrder = count
+            playerBtn.Parent = ScrollingFrame
+
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 6)
+            btnCorner.Parent = playerBtn
+
+            playerBtn.Activated:Connect(function()
+                local char = LocalPlayer.Character
+                local targetChar = player.Character
+
+                if not char or not targetChar then
+                    return
+                end
+
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local targetHrp =
+                    targetChar:FindFirstChild("HumanoidRootPart")
+
+                if hrp and targetHrp then
+                    hrp.CFrame =
+                        targetHrp.CFrame + Vector3.new(0, 3, 0)
+                end
+            end)
+        end
+    end
+
+    ScrollingFrame.CanvasSize = UDim2.new(
+        0, 0, 0, UIListLayout.AbsoluteContentSize.Y
+    )
+end
+
+-- ==================== PLAYER EVENTS ====================
+
+Players.PlayerAdded:Connect(updatePlayerList)
+Players.PlayerRemoving:Connect(updatePlayerList)
+
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize")
+    :Connect(function()
+        ScrollingFrame.CanvasSize = UDim2.new(
+            0, 0, 0, UIListLayout.AbsoluteContentSize.Y
+        )
+    end)
+
+updatePlayerList()
