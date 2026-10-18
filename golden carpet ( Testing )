@@ -1,0 +1,639 @@
+
+-- [[ Byweea cute💛 | Classic Roblox Flying Carpet R6 - FULL 3D ]]
+-- LocalScript: StarterPlayer > StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+
+local TOOL_NAME = "Byweea Golden Carpet💛"
+local FLY_SPEED = 80
+local TURN_RESPONSIVENESS = 100
+
+local CARPET_FORWARD_OFFSET = 1.2
+local CARPET_VERTICAL_OFFSET = -0.6
+
+local RED = Color3.fromRGB(150, 24, 65)
+local RED_LIGHT = Color3.fromRGB(190, 35, 80)
+local GOLD = Color3.fromRGB(255, 190, 45)
+local GOLD_LIGHT = Color3.fromRGB(255, 225, 115)
+
+local character, humanoid, root, tool
+local flying, equipped = false, false
+
+local attachment, linearVelocity, alignOrientation
+local carpetModel, carpet, trail
+local flyConnection, characterConnection
+
+local savedAutoRotate, savedPlatformStand
+local savedAnimate, savedAnimateDisabled
+local rightShoulder, savedRightTransform
+
+local keys = {
+    W = false, A = false, S = false, D = false,
+    Up = false, Down = false, Left = false, Right = false,
+}
+
+local function resetKeys()
+    for key in pairs(keys) do
+        keys[key] = false
+    end
+end
+
+-- [[ RIGHT HAND: HOLDING POSE WHILE FLYING ]]
+
+local function prepareHands()
+    local torso = character and (
+        character:FindFirstChild("Torso")
+        or character:FindFirstChild("UpperTorso")
+    )
+
+    if not torso then return end
+
+    rightShoulder =
+        torso:FindFirstChild("Right Shoulder")
+        or torso:FindFirstChild("RightShoulder")
+
+    if rightShoulder and rightShoulder:IsA("Motor6D") then
+        savedRightTransform = rightShoulder.Transform
+    end
+end
+
+local function updateHands()
+    if not flying or not rightShoulder
+        or not rightShoulder.Parent then
+        return
+    end
+
+    -- Raise the right arm into a holding-item pose.
+    rightShoulder.Transform = CFrame.Angles(
+        math.rad(-90),
+        0,
+        math.rad(12)
+    )
+end
+
+local function resetHands()
+    if rightShoulder and rightShoulder.Parent then
+        rightShoulder.Transform =
+            savedRightTransform or CFrame.identity
+    end
+
+    rightShoulder = nil
+    savedRightTransform = nil
+end
+
+-- [[ CREATE CLASSIC-STYLE ROBLOX CARPET ]]
+
+local function createCarpet()
+    if carpetModel then
+        carpetModel:Destroy()
+    end
+
+    local model = Instance.new("Model")
+    model.Name = "ByweeaClassicCarpet"
+
+    local decorations = {}
+
+    local function addPart(
+        name, size, color, material, offset, rotation, shape
+    )
+        local part = Instance.new("Part")
+        part.Name = name
+        part.Size = size
+        part.Color = color
+        part.Material = material or Enum.Material.SmoothPlastic
+        part.Anchored = true
+        part.CanCollide = false
+        part.CanTouch = false
+        part.CanQuery = false
+        part.CastShadow = false
+        part.TopSurface = Enum.SurfaceType.Smooth
+        part.BottomSurface = Enum.SurfaceType.Smooth
+
+        if shape then
+            part.Shape = shape
+        end
+
+        part.Parent = model
+
+        table.insert(decorations, {
+            part = part,
+            offset = offset,
+            rotation = rotation or Vector3.zero,
+        })
+    end
+
+    -- Main carpet body
+    local main = Instance.new("Part")
+    main.Name = "Carpet"
+    main.Size = Vector3.new(4.2, 0.16, 6)
+    main.Color = RED
+    main.Material = Enum.Material.Fabric
+    main.Anchored = true
+    main.CanCollide = false
+    main.CanTouch = false
+    main.CanQuery = false
+    main.CastShadow = false
+    main.TopSurface = Enum.SurfaceType.Smooth
+    main.BottomSurface = Enum.SurfaceType.Smooth
+    main.Parent = model
+
+    -- Outer golden border
+    addPart("BorderLeft",
+        Vector3.new(.13, .07, 5.8),
+        GOLD, Enum.Material.SmoothPlastic,
+        Vector3.new(-1.98, .1, 0))
+
+    addPart("BorderRight",
+        Vector3.new(.13, .07, 5.8),
+        GOLD, Enum.Material.SmoothPlastic,
+        Vector3.new(1.98, .1, 0))
+
+    addPart("BorderFront",
+        Vector3.new(4.05, .07, .13),
+        GOLD, Enum.Material.SmoothPlastic,
+        Vector3.new(0, .1, -2.87))
+
+    addPart("BorderBack",
+        Vector3.new(4.05, .07, .13),
+        GOLD, Enum.Material.SmoothPlastic,
+        Vector3.new(0, .1, 2.87))
+
+    -- Inner golden lines
+    for _, x in ipairs({-1.78, 1.78}) do
+        addPart("InnerGoldLine",
+            Vector3.new(.045, .035, 5.45),
+            GOLD_LIGHT, Enum.Material.SmoothPlastic,
+            Vector3.new(x, .15, 0))
+    end
+
+    for _, z in ipairs({-2.65, 2.65}) do
+        addPart("InnerGoldLine",
+            Vector3.new(3.65, .035, .045),
+            GOLD_LIGHT, Enum.Material.SmoothPlastic,
+            Vector3.new(0, .15, z))
+    end
+
+    -- Symmetrical diamond pattern
+    for _, z in ipairs({-2.1, -1.25, -.4, .4, 1.25, 2.1}) do
+        addPart("GoldenDiamond",
+            Vector3.new(.42, .045, .42),
+            GOLD_LIGHT, Enum.Material.SmoothPlastic,
+            Vector3.new(0, .17, z),
+            Vector3.new(0, math.rad(45), 0))
+    end
+
+    -- Central ornament
+    addPart("CenterMedallion",
+        Vector3.new(1.05, .06, 1.05),
+        GOLD, Enum.Material.SmoothPlastic,
+        Vector3.new(0, .17, 0),
+        Vector3.new(0, math.rad(45), 0))
+
+    addPart("CenterGem",
+        Vector3.new(.62, .07, .62),
+        RED_LIGHT, Enum.Material.SmoothPlastic,
+        Vector3.new(0, .22, 0),
+        Vector3.new(0, math.rad(45), 0))
+
+    -- Corner ornaments
+    for _, x in ipairs({-1.55, 1.55}) do
+        for _, z in ipairs({-2.45, 2.45}) do
+            addPart("CornerGem",
+                Vector3.new(.32, .06, .32),
+                GOLD_LIGHT, Enum.Material.SmoothPlastic,
+                Vector3.new(x, .17, z),
+                Vector3.new(0, math.rad(45), 0))
+        end
+    end
+
+    -- Golden fringe along both short ends
+    for _, z in ipairs({-3.12, 3.12}) do
+        for i = 1, 13 do
+            local x = -1.8 + (i - 1) * .3
+
+            addPart("GoldFringe",
+                Vector3.new(.09, .07, .48),
+                i % 2 == 0 and GOLD_LIGHT or GOLD,
+                Enum.Material.SmoothPlastic,
+                Vector3.new(x, -.015, z))
+        end
+    end
+
+    -- Four corner tassel caps and strands
+    for _, x in ipairs({-2, 2}) do
+        for _, z in ipairs({-3.25, 3.25}) do
+            addPart("TasselCap",
+                Vector3.new(.25, .13, .25),
+                GOLD_LIGHT, Enum.Material.SmoothPlastic,
+                Vector3.new(x, .03, z),
+                nil, Enum.PartType.Ball)
+
+            for i = 1, 3 do
+                addPart("TasselStrand",
+                    Vector3.new(.07, .07, .4),
+                    GOLD, Enum.Material.SmoothPlastic,
+                    Vector3.new(
+                        x + (i - 2) * .1,
+                        -.02,
+                        z
+                    ))
+            end
+        end
+    end
+
+    -- Magical sparkles
+    local emitter = Instance.new("ParticleEmitter")
+    emitter.Name = "CarpetSparkles"
+    emitter.Texture = "rbxassetid://258124463"
+    emitter.Color = ColorSequence.new(GOLD_LIGHT, GOLD)
+    emitter.Lifetime = NumberRange.new(.6, 1.2)
+    emitter.Rate = 18
+    emitter.Speed = NumberRange.new(.4, 1.4)
+    emitter.SpreadAngle = Vector2.new(35, 35)
+    emitter.Parent = main
+
+    -- Golden flight trail
+    local a0 = Instance.new("Attachment")
+    a0.Position = Vector3.new(-1.7, 0, 2.5)
+    a0.Parent = main
+
+    local a1 = Instance.new("Attachment")
+    a1.Position = Vector3.new(1.7, 0, 2.5)
+    a1.Parent = main
+
+    trail = Instance.new("Trail")
+    trail.Name = "GoldenCarpetTrail"
+    trail.Attachment0 = a0
+    trail.Attachment1 = a1
+    trail.Color = ColorSequence.new(GOLD_LIGHT, GOLD)
+    trail.Lifetime = 1
+    trail.LightEmission = .7
+    trail.WidthScale = NumberSequence.new(1.8, 0)
+    trail.Enabled = false
+    trail.Parent = main
+
+    model.Parent = workspace
+
+    carpetModel = model
+    carpet = main
+
+    local function positionCarpet(cf)
+        if not main.Parent then return end
+
+        main.CFrame = cf
+
+        for _, item in ipairs(decorations) do
+            if item.part and item.part.Parent then
+                item.part.CFrame =
+                    cf
+                    * CFrame.new(item.offset)
+                    * CFrame.Angles(
+                        item.rotation.X,
+                        item.rotation.Y,
+                        item.rotation.Z
+                    )
+            end
+        end
+    end
+
+    return positionCarpet
+end
+
+-- [[ CLEANUP FLIGHT ]]
+
+local function cleanupFlight()
+    flying = false
+    resetKeys()
+    resetHands()
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    if trail then
+        trail.Enabled = false
+    end
+
+    for _, object in ipairs({
+        linearVelocity,
+        alignOrientation,
+        attachment,
+    }) do
+        if object then
+            object:Destroy()
+        end
+    end
+
+    linearVelocity = nil
+    alignOrientation = nil
+    attachment = nil
+
+    if humanoid and humanoid.Parent then
+        if savedAutoRotate ~= nil then
+            humanoid.AutoRotate = savedAutoRotate
+        else
+            humanoid.AutoRotate = true
+        end
+
+        if savedPlatformStand ~= nil then
+            humanoid.PlatformStand = savedPlatformStand
+        else
+            humanoid.PlatformStand = false
+        end
+
+        pcall(function()
+            humanoid:ChangeState(
+                Enum.HumanoidStateType.GettingUp
+            )
+        end)
+    end
+
+    if savedAnimate and savedAnimate.Parent then
+        savedAnimate.Disabled = savedAnimateDisabled or false
+    end
+
+    savedAnimate = nil
+    savedAnimateDisabled = nil
+    savedAutoRotate = nil
+    savedPlatformStand = nil
+
+    if carpetModel then
+        carpetModel:Destroy()
+    end
+
+    carpetModel = nil
+    carpet = nil
+    trail = nil
+end
+
+-- [[ START FLYING: FULL 3D CAMERA SYNC ]]
+
+local function startFlying()
+    if flying or not equipped then return end
+
+    character = player.Character
+    humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    root = character and character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not root or humanoid.Health <= 0 then
+        warn("Byweea Carpet: Character chưa sẵn sàng.")
+        return
+    end
+
+    savedAutoRotate = humanoid.AutoRotate
+    savedPlatformStand = humanoid.PlatformStand
+
+    savedAnimate = character:FindFirstChild("Animate")
+
+    if savedAnimate then
+        savedAnimateDisabled = savedAnimate.Disabled
+        savedAnimate.Disabled = true
+    end
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+
+    if animator then
+        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+            track:Stop(0)
+        end
+    end
+
+    prepareHands()
+
+    local ok, positionCarpet = pcall(createCarpet)
+
+    if not ok or type(positionCarpet) ~= "function" then
+        warn("Byweea Carpet: Không thể tạo thảm bay.")
+        cleanupFlight()
+        return
+    end
+
+    attachment = Instance.new("Attachment")
+    attachment.Name = "CarpetFlightAttachment"
+    attachment.Parent = root
+
+    linearVelocity = Instance.new("LinearVelocity")
+    linearVelocity.Name = "CarpetFlightVelocity"
+    linearVelocity.Attachment0 = attachment
+    linearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    linearVelocity.VelocityConstraintMode =
+        Enum.VelocityConstraintMode.Vector
+    linearVelocity.ForceLimitsEnabled = false
+    linearVelocity.VectorVelocity = Vector3.zero
+    linearVelocity.Parent = root
+
+    alignOrientation = Instance.new("AlignOrientation")
+    alignOrientation.Name = "CarpetFlightOrientation"
+    alignOrientation.Mode =
+        Enum.OrientationAlignmentMode.OneAttachment
+    alignOrientation.Attachment0 = attachment
+    alignOrientation.Responsiveness = TURN_RESPONSIVENESS
+    alignOrientation.MaxTorque = 1500000
+    alignOrientation.RigidityEnabled = false
+    alignOrientation.Parent = root
+
+    humanoid.AutoRotate = false
+    humanoid.PlatformStand = true
+    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+
+    flying = true
+    updateHands()
+
+    if trail then
+        trail.Enabled = true
+    end
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not flying then return end
+
+        if not root or not root.Parent
+            or not humanoid or humanoid.Health <= 0 then
+            cleanupFlight()
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        if not camera then return end
+
+        local cameraCFrame = camera.CFrame
+        local cameraLook = cameraCFrame.LookVector
+        local cameraUp = cameraCFrame.UpVector
+
+        -- Rotate player to follow the full camera direction.
+        alignOrientation.CFrame = CFrame.lookAt(
+            root.Position,
+            root.Position + cameraLook,
+            cameraUp
+        )
+
+        -- Full 3D movement
+        local direction = Vector3.zero
+
+        if keys.W or keys.Up then
+            direction += cameraLook
+        end
+
+        if keys.S or keys.Down then
+            direction -= cameraLook
+        end
+
+        local right = cameraCFrame.RightVector
+
+        if keys.D or keys.Right then
+            direction += right
+        end
+
+        if keys.A or keys.Left then
+            direction -= right
+        end
+
+        if direction.Magnitude > 1 then
+            direction = direction.Unit
+        end
+
+        linearVelocity.VectorVelocity = direction * FLY_SPEED
+
+        -- Keep the right arm in the holding pose.
+        updateHands()
+
+        -- Position carpet in front of the player's chest.
+        local torso = character:FindFirstChild("Torso")
+            or character:FindFirstChild("UpperTorso")
+
+        local chest = torso and torso.Position
+            or root.Position + Vector3.new(0, 0.5, 0)
+
+        local carpetPosition =
+            chest
+            + cameraLook * CARPET_FORWARD_OFFSET
+            + Vector3.new(0, CARPET_VERTICAL_OFFSET, 0)
+
+        local carpetCFrame = CFrame.lookAt(
+            carpetPosition,
+            carpetPosition + cameraLook,
+            cameraUp
+        )
+
+        positionCarpet(carpetCFrame)
+    end)
+end
+
+-- [[ CREATE TOOL ]]
+
+local function createTool()
+    local backpack = player:WaitForChild("Backpack")
+
+    local old = backpack:FindFirstChild(TOOL_NAME)
+    if old then old:Destroy() end
+
+    if character then
+        old = character:FindFirstChild(TOOL_NAME)
+        if old then old:Destroy() end
+    end
+
+    local newTool = Instance.new("Tool")
+    newTool.Name = TOOL_NAME
+    newTool.ToolTip = "Click to ride your classic flying carpet"
+    newTool.RequiresHandle = true
+    newTool.CanBeDropped = false
+
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(.3, .3, .3)
+    handle.Transparency = 1
+    handle.CanCollide = false
+    handle.CanTouch = false
+    handle.CanQuery = false
+    handle.Massless = true
+    handle.Parent = newTool
+
+    newTool.Equipped:Connect(function()
+        tool = newTool
+        equipped = true
+    end)
+
+    newTool.Activated:Connect(function()
+        if flying then
+            cleanupFlight()
+        else
+            startFlying()
+        end
+    end)
+
+    newTool.Unequipped:Connect(function()
+        equipped = false
+        cleanupFlight()
+    end)
+
+    newTool.Destroying:Connect(function()
+        equipped = false
+        cleanupFlight()
+    end)
+
+    newTool.Parent = backpack
+    tool = newTool
+end
+
+-- [[ KEYBOARD INPUT ]]
+
+local keyMap = {
+    [Enum.KeyCode.W] = "W",
+    [Enum.KeyCode.A] = "A",
+    [Enum.KeyCode.S] = "S",
+    [Enum.KeyCode.D] = "D",
+    [Enum.KeyCode.Up] = "Up",
+    [Enum.KeyCode.Down] = "Down",
+    [Enum.KeyCode.Left] = "Left",
+    [Enum.KeyCode.Right] = "Right",
+}
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed or not flying then return end
+
+    local key = keyMap[input.KeyCode]
+    if key then
+        keys[key] = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    local key = keyMap[input.KeyCode]
+    if key then
+        keys[key] = false
+    end
+end)
+
+-- [[ RESPAWN HANDLING ]]
+
+local function onCharacterAdded(newCharacter)
+    cleanupFlight()
+
+    equipped = false
+    character = newCharacter
+    humanoid = nil
+    root = nil
+
+    resetKeys()
+
+    task.wait(1)
+
+    if player.Character == newCharacter then
+        createTool()
+    end
+end
+
+characterConnection = player.CharacterAdded:Connect(onCharacterAdded)
+
+if player.Character then
+    character = player.Character
+    task.wait(1)
+
+    if player.Character == character then
+        createTool()
+    end
+end
