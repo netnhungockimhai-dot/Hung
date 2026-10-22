@@ -1,0 +1,1141 @@
+-- [[ Byweea cute💛 | GOLDEN FLYING CARPET - FULL CAMERA 3D + FORCE RIGHT ARM + HELD CARPET + INVISIBLE HANDLE ]]
+-- LocalScript: StarterPlayer > StarterPlayerScripts
+-- R6 + R15
+-- Tham nam trong kho do (hotbar). Nguoi choi tu bam so / click o de cam len tay
+-- Click man hinh: Bat / tat bay (giong Tool Roblox)
+-- WASD / Arrow Keys: Bay theo camera 3D
+-- Space: Bay len | Shift / Ctrl: Bay xuong
+-- Nhan vat va tham xoay theo huong camera
+-- TAY PHAI BAT BUOC dua thang ra truoc (giong Roblox) khi cam tham va khi bay,
+-- khoi phuc khi bo Tool
+-- Player luon co 1 part Handle invisible gan tren tay phai
+-- Vet vang kim, xu ly hoi sinh va don dep
+
+--==================================================
+-- 01. SERVICES
+--==================================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Debris = game:GetService("Debris")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+
+--==================================================
+-- 02. CONFIGURATION
+--==================================================
+
+local TOOL_NAME = "Byweea Golden Carpet💛"
+
+local FLY_SPEED = 85
+local VERTICAL_SPEED = 45
+
+local CARPET_FORWARD_OFFSET = 2.0
+local CARPET_VERTICAL_OFFSET = -0.5
+local CARPET_SIZE = Vector3.new(3, 4.8, 0.18)
+
+-- Giu nguyen ID mesh va texture
+local CARPET_MESH_ID = "rbxassetid://223079737"
+local CARPET_TEXTURE_ID = "rbxassetid://1014108463"
+
+-- Tham cam tren tay (truoc khi bay): bang kich thuoc tham goc
+local HELD_CARPET_SIZE = CARPET_SIZE
+local HELD_CARPET_SCALE = Vector3.new(1.2, 1.2, 1.2)
+
+-- Xoay tham sang ben phai 1 lan (doi thanh math.rad(90) neu bi xoay nguoc)
+local HELD_CARPET_TURN_RIGHT = math.rad(-90)
+
+-- Dung tham doc giong luc bay (dao dau thanh math.rad(90) neu bi nguoc / nam ngang)
+local HELD_CARPET_STAND = math.rad(-90)
+
+-- Chinh vi tri / goc cam o day neu tham bi lech
+local HELD_CARPET_GRIP =
+    CFrame.new(0, -0.4, 0)
+    * CFrame.Angles(HELD_CARPET_STAND, 0, 0)
+    * CFrame.Angles(0, HELD_CARPET_TURN_RIGHT, 0)
+
+-- Part Handle invisible luon gan tren tay phai
+local INVISIBLE_HANDLE_NAME = "ByweeaInvisibleHandle"
+local INVISIBLE_HANDLE_SIZE = Vector3.new(1, 1, 1)
+
+-- Vi tri part invisible so voi ban tay (R6: cuoi Right Arm, R15: RightHand)
+local R6_INVISIBLE_HANDLE_OFFSET = CFrame.new(0, -1, 0)
+local R15_INVISIBLE_HANDLE_OFFSET = CFrame.new(0, -0.3, 0)
+
+-- false: Tool nam trong hotbar, nguoi choi tu cam len (click man hinh de bay)
+-- true : bat buoc luon cam Tool (bo ra la tu cam lai, an hotbar Backpack)
+local FORCE_EQUIP = false
+
+-- true: tham cam tren tay hien ra | false: Handle cua Tool cung invisible luon
+local HELD_CARPET_VISIBLE = true
+
+local GOLD = Color3.fromRGB(255, 190, 35)
+local LIGHT_GOLD = Color3.fromRGB(255, 225, 105)
+local CREAM_GOLD = Color3.fromRGB(255, 245, 180)
+
+local SPARKLE_TEXTURE = "rbxassetid://258124463"
+local ARM_BIND_NAME = "ByweeaForceRightArmPose"
+
+local GOLD_TRAIL_INTERVAL = 0.10
+local GOLD_TRAIL_MIN_DISTANCE = 1.5
+local GOLD_TRAIL_LIFETIME = 1.0
+local GOLD_TRAIL_WIDTH = 2.4
+
+-- Tu the tay phai: dua tay ra truoc nguc
+-- Goc X xoay canh tay xuong theo huong truoc cua nhan vat
+local ARM_FORWARD_ANGLE = math.rad(90)
+
+local R6_ARM_POSE = CFrame.Angles(ARM_FORWARD_ANGLE, 0, 0)
+local R15_ARM_POSE = CFrame.Angles(ARM_FORWARD_ANGLE, 0, 0)
+
+--==================================================
+-- 03. STATE
+--==================================================
+
+local character
+local humanoid
+local root
+local tool
+local heldHandle
+local invisibleHandle
+
+local flying = false
+local equipped = false
+local creatingTool = false
+
+local attachment
+local linearVelocity
+local alignOrientation
+
+local carpet
+local trail
+
+local flyConnection
+local diedConnection
+local characterConnection
+
+local inputBeganConnection
+local inputEndedConnection
+
+local savedAutoRotate
+local savedPlatformStand
+local savedAnimate
+local savedAnimateDisabled
+
+local rightShoulder
+local rightElbow
+local rightWrist
+local currentArmPose = CFrame.identity
+local armForced = false
+local armHeartbeatConnection
+
+local lastTrailPosition
+local lastTrailTime = 0
+
+local toolConnections = {}
+
+local keys = {
+    W = false, A = false, S = false, D = false,
+    Up = false, Down = false, Left = false, Right = false,
+    Space = false, Shift = false,
+}
+
+--==================================================
+-- 04. HELPERS
+--==================================================
+
+local function resetKeys()
+    for key in pairs(keys) do
+        keys[key] = false
+    end
+end
+
+local function disconnectToolConnections()
+    for _, connection in ipairs(toolConnections) do
+        connection:Disconnect()
+    end
+
+    table.clear(toolConnections)
+end
+
+local function getTorso()
+    if not character then
+        return nil
+    end
+
+    return character:FindFirstChild("Torso")
+        or character:FindFirstChild("UpperTorso")
+end
+
+local function setHeldCarpetVisible(visible)
+    if heldHandle and heldHandle.Parent then
+        heldHandle.Transparency =
+            (visible and HELD_CARPET_VISIBLE) and 0 or 1
+    end
+end
+
+--==================================================
+-- 04A. INVISIBLE HANDLE TREN TAY PHAI
+--==================================================
+
+local function destroyInvisibleHandle()
+    if invisibleHandle then
+        invisibleHandle:Destroy()
+        invisibleHandle = nil
+    end
+end
+
+local function createInvisibleHandle()
+    destroyInvisibleHandle()
+
+    if not character or not humanoid then
+        return
+    end
+
+    local isR6 = humanoid.RigType == Enum.HumanoidRigType.R6
+
+    local hand = isR6
+        and character:FindFirstChild("Right Arm")
+        or character:FindFirstChild("RightHand")
+
+    if not hand then
+        warn("[Byweea Carpet] Khong tim thay tay phai de gan Handle invisible.")
+        return
+    end
+
+    local part = Instance.new("Part")
+    part.Name = INVISIBLE_HANDLE_NAME
+    part.Size = INVISIBLE_HANDLE_SIZE
+    part.Transparency = 1
+    part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.CastShadow = false
+    part.Massless = true
+    part.Anchored = false
+    part.CFrame = hand.CFrame
+        * (isR6 and R6_INVISIBLE_HANDLE_OFFSET
+            or R15_INVISIBLE_HANDLE_OFFSET)
+
+    local weld = Instance.new("Weld")
+    weld.Name = "ByweeaInvisibleHandleWeld"
+    weld.Part0 = hand
+    weld.Part1 = part
+    weld.C0 = isR6 and R6_INVISIBLE_HANDLE_OFFSET
+        or R15_INVISIBLE_HANDLE_OFFSET
+    weld.Parent = part
+
+    part.Parent = character
+
+    invisibleHandle = part
+end
+
+-- Chi chay khi FORCE_EQUIP = true: dang o Backpack thi cam lai ngay
+local function forceEquipTool()
+    if not FORCE_EQUIP then
+        return
+    end
+
+    if not tool or not tool.Parent then
+        return
+    end
+
+    if not character or tool.Parent == character then
+        return
+    end
+
+    if not humanoid or humanoid.Health <= 0 then
+        return
+    end
+
+    pcall(function()
+        humanoid:EquipTool(tool)
+    end)
+end
+
+-- locked = true: an hotbar | locked = false: hien hotbar
+local function lockBackpackGui(locked)
+    for _ = 1, 5 do
+        local ok = pcall(function()
+            StarterGui:SetCoreGuiEnabled(
+                Enum.CoreGuiType.Backpack,
+                not locked
+            )
+        end)
+
+        if ok then
+            break
+        end
+
+        task.wait(0.5)
+    end
+end
+
+-- Luon bat hotbar de nguoi choi chon Tool (FORCE_EQUIP = true thi an)
+task.spawn(lockBackpackGui, FORCE_EQUIP)
+
+--==================================================
+-- 05. RIGHT ARM - FORCE POSE R6 / R15
+--     (bat buoc khi cam Tool + khi bay)
+--==================================================
+
+local function prepareHands()
+    rightShoulder = nil
+    rightElbow = nil
+    rightWrist = nil
+    currentArmPose = CFrame.identity
+
+    if not character or not humanoid then
+        return
+    end
+
+    for _, desc in ipairs(character:GetDescendants()) do
+        if desc:IsA("Motor6D") then
+            if desc.Name == "RightShoulder"
+                or desc.Name == "Right Shoulder" then
+
+                rightShoulder = desc
+            elseif desc.Name == "RightElbow" then
+                rightElbow = desc
+            elseif desc.Name == "RightWrist" then
+                rightWrist = desc
+            end
+        end
+    end
+
+    if humanoid.RigType == Enum.HumanoidRigType.R6 then
+        currentArmPose = R6_ARM_POSE
+    else
+        currentArmPose = R15_ARM_POSE
+    end
+end
+
+local function applyArmPose()
+    if not armForced then
+        return
+    end
+
+    if rightShoulder and rightShoulder.Parent then
+        rightShoulder.Transform = currentArmPose
+    end
+
+    -- R15: giu khuyu tay va co tay thang
+    if rightElbow and rightElbow.Parent then
+        rightElbow.Transform = CFrame.identity
+    end
+
+    if rightWrist and rightWrist.Parent then
+        rightWrist.Transform = CFrame.identity
+    end
+end
+
+local function stopArmForce()
+    armForced = false
+
+    RunService:UnbindFromRenderStep(ARM_BIND_NAME)
+
+    if armHeartbeatConnection then
+        armHeartbeatConnection:Disconnect()
+        armHeartbeatConnection = nil
+    end
+
+    -- Tra tay ve binh thuong
+    if rightShoulder and rightShoulder.Parent then
+        rightShoulder.Transform = CFrame.identity
+    end
+
+    if rightElbow and rightElbow.Parent then
+        rightElbow.Transform = CFrame.identity
+    end
+
+    if rightWrist and rightWrist.Parent then
+        rightWrist.Transform = CFrame.identity
+    end
+
+    rightShoulder = nil
+    rightElbow = nil
+    rightWrist = nil
+    currentArmPose = CFrame.identity
+end
+
+local function startArmForce()
+    stopArmForce()
+    prepareHands()
+
+    if not rightShoulder then
+        warn("[Byweea Carpet] Khong tim thay khop vai phai.")
+        return
+    end
+
+    armForced = true
+
+    -- Ap dung lai tu the sau khi Animator cap nhat khop,
+    -- giup animation mac dinh it ghi de len tay hon.
+    RunService:UnbindFromRenderStep(ARM_BIND_NAME)
+
+    armHeartbeatConnection = RunService.PreSimulation:Connect(function()
+        if armForced then
+            applyArmPose()
+        end
+    end)
+
+    applyArmPose()
+end
+
+--==================================================
+-- 06. CREATE GOLDEN CARPET MESH
+--==================================================
+
+local function createCarpet()
+    if carpet then
+        carpet:Destroy()
+        carpet = nil
+    end
+
+    local main = Instance.new("Part")
+    main.Name = "ByweeaGoldenCarpetMesh"
+    main.Size = CARPET_SIZE
+    main.Transparency = 0
+    main.Color = Color3.new(1, 1, 1)
+    main.Material = Enum.Material.SmoothPlastic
+    main.Anchored = true
+    main.CanCollide = false
+    main.CanTouch = false
+    main.CanQuery = false
+    main.CastShadow = false
+    main.Massless = true
+
+    local mesh = Instance.new("SpecialMesh")
+    mesh.Name = "GoldenCarpetMesh"
+    mesh.MeshType = Enum.MeshType.FileMesh
+    mesh.MeshId = CARPET_MESH_ID
+    mesh.TextureId = CARPET_TEXTURE_ID
+    mesh.Scale = Vector3.new(1.2, 1.2, 1.2)
+    mesh.VertexColor = Vector3.new(1, 1, 1)
+    mesh.Parent = main
+
+    local light = Instance.new("PointLight")
+    light.Name = "GoldenGlow"
+    light.Color = LIGHT_GOLD
+    light.Brightness = 1.5
+    light.Range = 8
+    light.Shadows = false
+    light.Parent = main
+
+    local emitter = Instance.new("ParticleEmitter")
+    emitter.Name = "CarpetSparkles"
+    emitter.Texture = SPARKLE_TEXTURE
+    emitter.Color = ColorSequence.new(LIGHT_GOLD, GOLD)
+    emitter.Lifetime = NumberRange.new(0.6, 1.2)
+    emitter.Rate = 25
+    emitter.Speed = NumberRange.new(0.5, 2)
+    emitter.SpreadAngle = Vector2.new(45, 45)
+    emitter.LightEmission = 0.8
+    emitter.Parent = main
+
+    local a0 = Instance.new("Attachment")
+    a0.Name = "CarpetTrailA0"
+    a0.Position = Vector3.new(-1.25, -2.5, 0)
+    a0.Parent = main
+
+    local a1 = Instance.new("Attachment")
+    a1.Name = "CarpetTrailA1"
+    a1.Position = Vector3.new(1.25, -2.5, 0)
+    a1.Parent = main
+
+    local newTrail = Instance.new("Trail")
+    newTrail.Name = "GoldenCarpetTrail"
+    newTrail.Attachment0 = a0
+    newTrail.Attachment1 = a1
+
+    newTrail.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, CREAM_GOLD),
+        ColorSequenceKeypoint.new(0.5, LIGHT_GOLD),
+        ColorSequenceKeypoint.new(1, GOLD),
+    })
+
+    newTrail.Lifetime = 1.2
+    newTrail.LightEmission = 1
+
+    newTrail.WidthScale = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 2.8),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+
+    newTrail.Enabled = false
+    newTrail.Parent = main
+
+    main.Parent = workspace
+
+    carpet = main
+    trail = newTrail
+
+    return main
+end
+
+--==================================================
+-- 07. GOLDEN TRAIL
+--==================================================
+
+local function createGoldenTrailSegment(fromPosition, toPosition)
+    local difference = toPosition - fromPosition
+    local distance = difference.Magnitude
+
+    if distance < GOLD_TRAIL_MIN_DISTANCE then
+        return
+    end
+
+    local midpoint = (fromPosition + toPosition) / 2
+
+    local segment = Instance.new("Part")
+    segment.Name = "ByweeaGoldenTrailSegment"
+    segment.Anchored = true
+    segment.CanCollide = false
+    segment.CanTouch = false
+    segment.CanQuery = false
+    segment.CastShadow = false
+    segment.Material = Enum.Material.Neon
+    segment.Color = LIGHT_GOLD
+    segment.Transparency = 0.12
+
+    segment.Size = Vector3.new(
+        GOLD_TRAIL_WIDTH,
+        0.12,
+        distance + 0.15
+    )
+
+    segment.CFrame = CFrame.lookAt(midpoint, toPosition)
+    segment.Parent = workspace
+
+    local glow = Instance.new("PointLight")
+    glow.Name = "GoldenTrailGlow"
+    glow.Color = GOLD
+    glow.Brightness = 0.65
+    glow.Range = 5
+    glow.Shadows = false
+    glow.Parent = segment
+
+    Debris:AddItem(segment, GOLD_TRAIL_LIFETIME)
+end
+
+local function updateGoldenTrail(position)
+    local now = os.clock()
+
+    if not lastTrailPosition then
+        lastTrailPosition = position
+        lastTrailTime = now
+        return
+    end
+
+    if now - lastTrailTime < GOLD_TRAIL_INTERVAL then
+        return
+    end
+
+    local previous = lastTrailPosition
+    local distance = (position - previous).Magnitude
+
+    lastTrailTime = now
+
+    if distance >= GOLD_TRAIL_MIN_DISTANCE then
+        createGoldenTrailSegment(previous, position)
+        lastTrailPosition = position
+    end
+end
+
+--==================================================
+-- 08. CLEANUP FLIGHT
+--==================================================
+
+local function cleanupFlight()
+    flying = false
+
+    -- Hien lai tham cam tay
+    setHeldCarpetVisible(true)
+
+    resetKeys()
+
+    -- Con cam Tool thi van giu tay phai dua ra truoc
+    if not equipped then
+        stopArmForce()
+    end
+
+    lastTrailPosition = nil
+    lastTrailTime = 0
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    if trail then
+        trail.Enabled = false
+    end
+
+    if linearVelocity then
+        linearVelocity:Destroy()
+        linearVelocity = nil
+    end
+
+    if alignOrientation then
+        alignOrientation:Destroy()
+        alignOrientation = nil
+    end
+
+    if attachment then
+        attachment:Destroy()
+        attachment = nil
+    end
+
+    if carpet then
+        carpet:Destroy()
+        carpet = nil
+    end
+
+    trail = nil
+
+    if humanoid and humanoid.Parent then
+        if savedAutoRotate ~= nil then
+            humanoid.AutoRotate = savedAutoRotate
+        end
+
+        if savedPlatformStand ~= nil then
+            humanoid.PlatformStand = savedPlatformStand
+        end
+
+        pcall(function()
+            humanoid:ChangeState(
+                Enum.HumanoidStateType.GettingUp
+            )
+        end)
+    end
+
+    if savedAnimate and savedAnimate.Parent then
+        savedAnimate.Disabled = savedAnimateDisabled or false
+    end
+
+    savedAutoRotate = nil
+    savedPlatformStand = nil
+    savedAnimate = nil
+    savedAnimateDisabled = nil
+end
+
+--==================================================
+-- 09. START FLIGHT
+--==================================================
+
+local function startFlying()
+    if flying or not equipped then
+        return
+    end
+
+    character = player.Character
+
+    humanoid = character
+        and character:FindFirstChildOfClass("Humanoid")
+
+    root = character
+        and character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not root or humanoid.Health <= 0 then
+        return
+    end
+
+    savedAutoRotate = humanoid.AutoRotate
+    savedPlatformStand = humanoid.PlatformStand
+
+    savedAnimate = character:FindFirstChild("Animate")
+
+    if savedAnimate then
+        savedAnimateDisabled = savedAnimate.Disabled
+        savedAnimate.Disabled = true
+    end
+
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+
+    if animator then
+        for _, track in ipairs(
+            animator:GetPlayingAnimationTracks()
+        ) do
+            track:Stop(0)
+        end
+    end
+
+    -- Dam bao tay phai dang bi ep (da bat tu luc cam Tool)
+    if not armForced then
+        startArmForce()
+    end
+
+    local success, result = pcall(createCarpet)
+
+    if not success or not result then
+        warn("[Byweea Carpet] Khong tao duoc tham:", result)
+        cleanupFlight()
+        return
+    end
+
+    attachment = Instance.new("Attachment")
+    attachment.Name = "CarpetFlightAttachment"
+    attachment.Parent = root
+
+    linearVelocity = Instance.new("LinearVelocity")
+    linearVelocity.Name = "CarpetFlightVelocity"
+    linearVelocity.Attachment0 = attachment
+    linearVelocity.RelativeTo = Enum.ActuatorRelativeTo.World
+    linearVelocity.VelocityConstraintMode =
+        Enum.VelocityConstraintMode.Vector
+    linearVelocity.ForceLimitsEnabled = false
+    linearVelocity.VectorVelocity = Vector3.zero
+    linearVelocity.Parent = root
+
+    alignOrientation = Instance.new("AlignOrientation")
+    alignOrientation.Name = "CarpetFlightRotation"
+    alignOrientation.Mode =
+        Enum.OrientationAlignmentMode.OneAttachment
+    alignOrientation.Attachment0 = attachment
+    alignOrientation.RigidityEnabled = false
+    alignOrientation.Responsiveness = 100
+    alignOrientation.MaxTorque = 1000000000
+    alignOrientation.MaxAngularVelocity = 100
+
+    -- Lay huong camera khi bat dau bay
+    local camera = workspace.CurrentCamera
+    local initialLook = camera and camera.CFrame.LookVector
+        or root.CFrame.LookVector
+
+    if initialLook.Magnitude > 0.001 then
+        alignOrientation.CFrame = CFrame.lookAt(
+            Vector3.zero,
+            initialLook.Unit,
+            camera and camera.CFrame.UpVector or Vector3.yAxis
+        )
+    end
+
+    alignOrientation.Parent = root
+
+    humanoid.AutoRotate = false
+    humanoid.PlatformStand = true
+    humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+
+    flying = true
+
+    -- An tham cam tay, dung tham bay thay the
+    setHeldCarpetVisible(false)
+
+    lastTrailPosition = nil
+    lastTrailTime = 0
+
+    applyArmPose()
+
+    if trail then
+        trail.Enabled = true
+    end
+
+    --==================================================
+    -- 09A. FULL 3D FLIGHT LOOP
+    --==================================================
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not flying then
+            return
+        end
+
+        if not character or not character.Parent
+            or not root or not root.Parent
+            or not humanoid or humanoid.Health <= 0
+            or not carpet or not carpet.Parent
+            or not linearVelocity or not linearVelocity.Parent
+            or not alignOrientation or not alignOrientation.Parent then
+
+            cleanupFlight()
+            return
+        end
+
+        local currentCamera = workspace.CurrentCamera
+
+        if not currentCamera then
+            return
+        end
+
+        local cameraCFrame = currentCamera.CFrame
+        local cameraLook = cameraCFrame.LookVector.Unit
+        local cameraRight = cameraCFrame.RightVector
+
+        -- Nhan vat xoay theo huong camera 3D
+        alignOrientation.CFrame = CFrame.lookAt(
+            Vector3.zero,
+            cameraLook,
+            cameraCFrame.UpVector
+        )
+
+        -- Di chuyen theo camera
+        local direction = Vector3.zero
+
+        if keys.W or keys.Up then
+            direction += cameraLook
+        end
+
+        if keys.S or keys.Down then
+            direction -= cameraLook
+        end
+
+        if keys.D or keys.Right then
+            direction += cameraRight
+        end
+
+        if keys.A or keys.Left then
+            direction -= cameraRight
+        end
+
+        if direction.Magnitude > 1 then
+            direction = direction.Unit
+        end
+
+        local vertical = 0
+
+        if keys.Space then
+            vertical += VERTICAL_SPEED
+        end
+
+        if keys.Shift then
+            vertical -= VERTICAL_SPEED
+        end
+
+        linearVelocity.VectorVelocity = Vector3.new(
+            direction.X * FLY_SPEED,
+            direction.Y * FLY_SPEED + vertical,
+            direction.Z * FLY_SPEED
+        )
+
+        -- Dat tham truoc nguc theo camera 3D
+        local torso = getTorso()
+
+        local chest = torso and torso.Position
+            or (root.Position + Vector3.new(0, 0.5, 0))
+
+        local carpetPosition =
+            chest
+            + cameraLook * CARPET_FORWARD_OFFSET
+            + Vector3.new(0, CARPET_VERTICAL_OFFSET, 0)
+
+        carpet.CFrame = CFrame.lookAt(
+            carpetPosition,
+            carpetPosition + cameraLook,
+            cameraCFrame.UpVector
+        ) * CFrame.Angles(math.rad(90), 0, 0)
+
+        updateGoldenTrail(carpetPosition)
+    end)
+end
+
+--==================================================
+-- 10. CREATE TOOL + HELD CARPET HANDLE
+--==================================================
+
+local function createTool()
+    if creatingTool then
+        return
+    end
+
+    creatingTool = true
+
+    local success, err = pcall(function()
+        local backpack = player:WaitForChild("Backpack")
+
+        -- Xoa Tool trung ten
+        for _, container in ipairs({backpack, character}) do
+            if container then
+                for _, item in ipairs(container:GetChildren()) do
+                    if item:IsA("Tool")
+                        and item.Name == TOOL_NAME then
+                        item:Destroy()
+                    end
+                end
+            end
+        end
+
+        disconnectToolConnections()
+        cleanupFlight()
+
+        local newTool = Instance.new("Tool")
+        newTool.Name = TOOL_NAME
+        newTool.ToolTip = "Click to fly with the Golden Carpet"
+        newTool.RequiresHandle = true
+        newTool.CanBeDropped = false
+        newTool.Enabled = true
+        newTool.Grip = HELD_CARPET_GRIP
+
+        -- Handle that Roblox uses to grip the Tool: invisible and non-collidable
+        local handle = Instance.new("Part")
+        handle.Name = "Handle"
+        handle.Size = INVISIBLE_HANDLE_SIZE
+        handle.Transparency = 1
+        handle.Color = Color3.new(1, 1, 1)
+        handle.Material = Enum.Material.SmoothPlastic
+        handle.Anchored = false
+        handle.CanCollide = false
+        handle.CanTouch = false
+        handle.CanQuery = false
+        handle.Massless = true
+        handle.CastShadow = false
+        handle.Parent = newTool
+
+        -- Separate visible carpet model welded to the invisible Tool Handle
+        local heldCarpetPart = Instance.new("Part")
+        heldCarpetPart.Name = "HeldGoldenCarpetVisual"
+        heldCarpetPart.Size = HELD_CARPET_SIZE
+        heldCarpetPart.Transparency = HELD_CARPET_VISIBLE and 0 or 1
+        heldCarpetPart.Color = Color3.new(1, 1, 1)
+        heldCarpetPart.Material = Enum.Material.SmoothPlastic
+        heldCarpetPart.Anchored = false
+        heldCarpetPart.CanCollide = false
+        heldCarpetPart.CanTouch = false
+        heldCarpetPart.CanQuery = false
+        heldCarpetPart.Massless = true
+        heldCarpetPart.CastShadow = false
+
+        local handMesh = Instance.new("SpecialMesh")
+        handMesh.Name = "GoldenCarpetMesh"
+        handMesh.MeshType = Enum.MeshType.FileMesh
+        handMesh.MeshId = CARPET_MESH_ID
+        handMesh.TextureId = CARPET_TEXTURE_ID
+        handMesh.Scale = HELD_CARPET_SCALE
+        handMesh.VertexColor = Vector3.new(1, 1, 1)
+        handMesh.Parent = heldCarpetPart
+
+        local visualWeld = Instance.new("WeldConstraint")
+        visualWeld.Name = "HeldCarpetVisualWeld"
+        visualWeld.Part0 = handle
+        visualWeld.Part1 = heldCarpetPart
+        visualWeld.Parent = heldCarpetPart
+
+        heldCarpetPart.Parent = newTool
+        heldHandle = heldCarpetPart
+
+        table.insert(
+            toolConnections,
+            newTool.Equipped:Connect(function()
+                tool = newTool
+                equipped = true
+                character = player.Character
+
+                humanoid = character
+                    and character:FindFirstChildOfClass("Humanoid")
+
+                root = character
+                    and character:FindFirstChild("HumanoidRootPart")
+
+                -- Cam Tool la tay phai dua ra truoc ngay
+                startArmForce()
+            end)
+        )
+
+        -- Click man hinh: bat / tat bay
+        table.insert(
+            toolConnections,
+            newTool.Activated:Connect(function()
+                if not equipped then
+                    return
+                end
+
+                if flying then
+                    cleanupFlight()
+                else
+                    startFlying()
+                end
+            end)
+        )
+
+        table.insert(
+            toolConnections,
+            newTool.Unequipped:Connect(function()
+                equipped = false
+                cleanupFlight()
+                stopArmForce()
+
+                -- Chi tu cam lai khi FORCE_EQUIP = true
+                task.defer(forceEquipTool)
+            end)
+        )
+
+        table.insert(
+            toolConnections,
+            newTool.Destroying:Connect(function()
+                equipped = false
+                cleanupFlight()
+                stopArmForce()
+                disconnectToolConnections()
+                heldHandle = nil
+            end)
+        )
+
+        -- Tool nam trong Backpack (hotbar), nguoi choi tu cam len
+        newTool.Parent = backpack
+        tool = newTool
+
+        -- Chi tu cam ngay khi vua tao neu FORCE_EQUIP = true
+        task.defer(forceEquipTool)
+    end)
+
+    creatingTool = false
+
+    if not success then
+        warn("[Byweea Carpet] Loi tao Tool:", err)
+    end
+end
+
+--==================================================
+-- 11. KEYBOARD INPUT
+--==================================================
+
+local keyMap = {
+    [Enum.KeyCode.W] = "W",
+    [Enum.KeyCode.A] = "A",
+    [Enum.KeyCode.S] = "S",
+    [Enum.KeyCode.D] = "D",
+
+    [Enum.KeyCode.Up] = "Up",
+    [Enum.KeyCode.Down] = "Down",
+    [Enum.KeyCode.Left] = "Left",
+    [Enum.KeyCode.Right] = "Right",
+
+    [Enum.KeyCode.Space] = "Space",
+    [Enum.KeyCode.LeftShift] = "Shift",
+    [Enum.KeyCode.RightShift] = "Shift",
+    [Enum.KeyCode.LeftControl] = "Shift",
+}
+
+inputBeganConnection = UserInputService.InputBegan:Connect(
+    function(input, processed)
+        if processed or not flying then
+            return
+        end
+
+        local key = keyMap[input.KeyCode]
+
+        if key then
+            keys[key] = true
+        end
+    end
+)
+
+inputEndedConnection = UserInputService.InputEnded:Connect(
+    function(input)
+        local key = keyMap[input.KeyCode]
+
+        if key then
+            keys[key] = false
+        end
+    end
+)
+
+--==================================================
+-- 12. RESPAWN HANDLING
+--==================================================
+
+local function onCharacterAdded(newCharacter)
+    equipped = false
+    cleanupFlight()
+    stopArmForce()
+    destroyInvisibleHandle()
+    resetKeys()
+
+    if diedConnection then
+        diedConnection:Disconnect()
+        diedConnection = nil
+    end
+
+    character = newCharacter
+    humanoid = nil
+    root = nil
+    tool = nil
+    heldHandle = nil
+
+    task.spawn(function()
+        local newHumanoid = newCharacter:WaitForChild(
+            "Humanoid",
+            10
+        )
+
+        if not newHumanoid
+            or player.Character ~= newCharacter then
+            return
+        end
+
+        humanoid = newHumanoid
+
+        root = newCharacter:WaitForChild(
+            "HumanoidRootPart",
+            10
+        )
+
+        if not root or player.Character ~= newCharacter then
+            return
+        end
+
+        diedConnection = humanoid.Died:Connect(function()
+            equipped = false
+            cleanupFlight()
+            stopArmForce()
+            destroyInvisibleHandle()
+        end)
+
+        -- Gan part Handle invisible len tay phai (cho R15 doi tay load xong)
+        if humanoid.RigType == Enum.HumanoidRigType.R15 then
+            newCharacter:WaitForChild("RightHand", 10)
+        else
+            newCharacter:WaitForChild("Right Arm", 10)
+        end
+
+        if player.Character ~= newCharacter then
+            return
+        end
+
+        createInvisibleHandle()
+        createTool()
+    end)
+end
+
+characterConnection = player.CharacterAdded:Connect(
+    onCharacterAdded
+)
+
+if player.Character then
+    onCharacterAdded(player.Character)
+end
+
+--==================================================
+-- 13. SCRIPT CLEANUP
+--==================================================
+
+script.Destroying:Connect(function()
+    equipped = false
+    cleanupFlight()
+    stopArmForce()
+    destroyInvisibleHandle()
+    disconnectToolConnections()
+
+    -- Luon tra hotbar ve nhu cu
+    task.spawn(lockBackpackGui, false)
+
+    if diedConnection then
+        diedConnection:Disconnect()
+        diedConnection = nil
+    end
+
+    if characterConnection then
+        characterConnection:Disconnect()
+        characterConnection = nil
+    end
+
+    if inputBeganConnection then
+        inputBeganConnection:Disconnect()
+        inputBeganConnection = nil
+    end
+
+    if inputEndedConnection then
+        inputEndedConnection:Disconnect()
+        inputEndedConnection = nil
+    end
+end)
